@@ -246,7 +246,7 @@ class FinancialServices:
                 return None
     
             # 1. Configurar cliente OpenAI
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), proxies=None)
     
             # 2. Mapeo completo de tonos a voces y parámetros
             voice_profiles = {
@@ -468,7 +468,7 @@ class FinancialServices:
 
         try:
             # Configura el cliente OpenAI (debería estar inicializado en el __init__ de la clase)
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), proxies=None)
 
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
