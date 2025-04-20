@@ -16,7 +16,7 @@ import warnings
 import numpy as np
 import soundfile as sf
 from scipy import signal
-
+import httpx  
 # ----------------------------
 # Configuración Inicial
 # ----------------------------
@@ -26,7 +26,15 @@ app = FastAPI(
     version="10.1",
     description="Sistema financiero con categorización automática y análisis con IA"
 )
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), proxies=None)
+
+def get_openai_client():
+    """Factory para crear cliente OpenAI sin problemas de proxy"""
+    import httpx
+    return OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        http_client=httpx.Client(proxies=None)  # Desactiva explícitamente proxies
+    )
+client = get_openai_client()
 openai.api_key = os.getenv("OPENAI_API_KEY")  # Para compatibilidad con código legacy
 
 # Configuración de logging
@@ -246,7 +254,7 @@ class FinancialServices:
                 return None
     
             # 1. Configurar cliente OpenAI
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), proxies=None)
+            client = get_openai_client()
     
             # 2. Mapeo completo de tonos a voces y parámetros
             voice_profiles = {
@@ -468,7 +476,7 @@ class FinancialServices:
 
         try:
             # Configura el cliente OpenAI (debería estar inicializado en el __init__ de la clase)
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), proxies=None)
+            client = get_openai_client()
 
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
