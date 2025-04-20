@@ -1,0 +1,12 @@
+fastapi==0.109.1
+uvicorn==0.27.0
+python-dotenv==1.0.0
+openai==1.12.0
+azure-storage-blob==12.19.0
+azure-identity==1.15.0
+numpy==1.24.3  # Compatible con numba y tts
+soundfile==0.12.1
+scipy==1.12.0
+python-jose==3.3.0
+python-multipart==0.0.6
+TTS==0.20.1
