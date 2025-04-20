@@ -26,7 +26,7 @@ app = FastAPI(
     version="10.1",
     description="Sistema financiero con categorización automática y análisis con IA"
 )
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), proxies=None)
 openai.api_key = os.getenv("OPENAI_API_KEY")  # Para compatibilidad con código legacy
 
 # Configuración de logging
