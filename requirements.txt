@@ -1,12 +1,28 @@
+# Core FastAPI
 fastapi==0.109.1
 uvicorn==0.27.0
 python-dotenv==1.0.0
+
+# OpenAI y HTTP (versiones compatibles)
 openai==1.12.0
+httpx==0.27.0  # Necesario para controlar proxies
+
+# Azure
 azure-storage-blob==12.19.0
 azure-identity==1.15.0
-numpy==1.24.3  # Compatible con numba y tts
+
+# Procesamiento de audio
+numpy==1.26.4  # Actualizado por seguridad (1.24.3 tiene vulnerabilidades)
 soundfile==0.12.1
 scipy==1.12.0
+
+# Autenticación
 python-jose==3.3.0
 python-multipart==0.0.6
+
+# Text-to-Speech (ver nota abajo)
 TTS==0.20.1
+
+# Dependencias adicionales críticas
+pydantic==2.6.4
+PyJWT==2.8.0
