@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Optional, Literal
 import os, uuid, json, random
@@ -8,7 +8,7 @@ from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_b
 from azure.identity import DefaultAzureCredential
 from TTS.api import TTS
 import openai
-from openai import OpenAI  # Debe estar al principio con los otros imports
+from openai import OpenAI
 from dotenv import load_dotenv
 import jwt
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -16,7 +16,11 @@ import warnings
 import numpy as np
 import soundfile as sf
 from scipy import signal
-import httpx  
+import httpx
+import tempfile
+from pydub import AudioSegment
+import speech_recognition as sr
+
 # ----------------------------
 # Configuración Inicial
 # ----------------------------
