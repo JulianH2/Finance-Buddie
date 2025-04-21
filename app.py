@@ -70,6 +70,12 @@ class TextToSpeechRequest(BaseModel):
 
 class UserRequest(BaseModel):
     email: str
+    
+class ChatRequest(BaseModel):
+    message: str
+    tone: str = "professional"
+    chat_history: Optional[List[dict]] = None
+    generate_audio_response: bool = False
 
 # ----------------------------
 # Categorización de Transacciones (MEJORADA)
@@ -119,6 +125,7 @@ def categorize_transactions(transactions: List[dict]) -> List[dict]:
 # ----------------------------
 container_name = "financebuddie-audios"
 
+
 def format_currency(amount: float, currency: str) -> str:
     """Formatea cantidades monetarias con el nombre completo de la moneda"""
     currency_names = {
@@ -128,9 +135,7 @@ def format_currency(amount: float, currency: str) -> str:
         "GBP": "libras esterlinas",
         "JPY": "yenes japoneses"
     }
-    # Formatear el número con 2 decimales y separadores de miles
     formatted_amount = "{:,.2f}".format(amount)
-    # Devolver el string formateado con el nombre de la moneda
     return f"{formatted_amount} {currency_names.get(currency, currency)}"
 
 def init_azure_storage():
@@ -165,17 +170,17 @@ def init_azure_storage():
 blob_service_client = init_azure_storage()
 if blob_service_client:
     try:
-        # Crear contenedor si no existe con configuración óptima
         container_client = blob_service_client.get_container_client(container_name)
         if not container_client.exists():
             container_client.create_container(
                 metadata={"purpose": "financebuddie-audios"},
-                public_access="blob"  # Ajustar según necesidades de seguridad
+                public_access="blob"
             )
             logger.info(f"Contenedor {container_name} creado exitosamente")
     except Exception as e:
         logger.error(f"Error configurando contenedor: {str(e)}")
         blob_service_client = None
+
 
 # ----------------------------
 # Servicios Principales (VERSIÓN MEJORADA)
@@ -184,67 +189,59 @@ class FinancialServices:
     def __init__(self):
         self.tts = None
         
-        # Configuraciones de voz optimizadas
+        self.recognizer = sr.Recognizer()
         self.voice_profiles = {
-            "friendly": {
-                "voice": "nova",       # Voz cálida y expresiva
-                "speed": 1.1,          # Velocidad ligeramente aumentada
-                "pitch": 1.05,         # Tono ligeramente más agudo
-                "effects": {
-                    "brightness": 1.2  # Énfasis en frecuencias medias-altas
-                }
-            },
-            "professional": {
-                "voice": "alloy",      # Voz clara y neutra
-                "speed": 1.0,
-                "pitch": 1.0,
-                "effects": {
-                    "brightness": 1.0  # Sonido natural
-                }
-            },
-            "maple": {
-                "voice": "fable",      # Voz narrativa cálida
-                "speed": 0.95,         # Velocidad ligeramente reducida
-                "pitch": 0.98,
-                "effects": {
-                    "brightness": 1.1,
-                    "vibrato": 0.05    # Ligera modulación para efecto orgánico
-                }
-            },
-            "juniper": {
-                "voice": "onyx",       # Voz profunda y resonante
-                "speed": 1.05,
-                "pitch": 0.92,        # Tono más grave
-                "effects": {
-                    "brightness": 0.9  # Sonido más cálido
-                }
-            },
-            "breezer": {
-                "voice": "shimmer",    # Voz aireada y ligera
-                "speed": 1.15,
-                "pitch": 1.1,
-                "effects": {
-                    "brightness": 1.3, # Sonido muy claro
-                    "robot": 0.3,      # Toque digital sutil
-                }
-            },
-            "robot_cute": {
-                "voice": "echo",       # Voz con efecto digital
-                "speed": 1.3,
-                "pitch": 1.4,
-                "effects": {
-                    "robot": 0.6,      # Efecto robótico marcado
-                    "brightness": 1.25
-                }
-            }
-        }
+            "friendly": {"voice": "nova", "speed": 1.1, "pitch": 1.05, "effects": {"brightness": 1.2}},
+            "professional": {"voice": "alloy", "speed": 1.0, "pitch": 1.0, "effects": {"brightness": 1.0}},
+            "maple": {"voice": "fable", "speed": 0.95, "pitch": 0.98, "effects": {"brightness": 1.1, "vibrato": 0.05}},
+            "juniper": {"voice": "onyx", "speed": 1.05, "pitch": 0.92, "effects": {"brightness": 0.9}},
+            "breezer": {"voice": "shimmer", "speed": 1.15, "pitch": 1.1, "effects": {"brightness": 1.3, "robot": 0.3}},
+            "robot_cute": {"voice": "echo", "speed": 1.3, "pitch": 1.4, "effects": {"robot": 0.6, "brightness": 1.25}}
+        }  
         self.audio_metadata = []
+
+
+    async def transcribe_audio(self, audio_file: UploadFile) -> str:
+        """Transcribe audio a texto usando Whisper de OpenAI"""
+        try:
+            # Guardar archivo temporalmente
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                content = await audio_file.read()
+                
+                # Convertir a formato compatible si es necesario
+                if audio_file.content_type != "audio/wav":
+                    audio = AudioSegment.from_file(io.BytesIO(content), format=audio_file.filename.split('.')[-1])
+                    audio.export(tmp_file.name, format="wav")
+                else:
+                    tmp_file.write(content)
+                
+                tmp_file_path = tmp_file.name
+
+            # Transcribir usando Whisper
+            with open(tmp_file_path, "rb") as audio_data:
+                transcription = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_data,
+                    response_format="text"
+                )
+                
+            # Limpieza
+            os.unlink(tmp_file_path)
+            
+            return transcription
+        
+        except Exception as e:
+            logger.error(f"Error en transcripción de audio: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Error al transcribir el audio"
+            )
+
 
     def generate_audio(self, text: str, tone: str, user_email: str) -> Optional[dict]:
         """Genera audio usando OpenAI TTS y sube a Azure Storage con soporte para múltiples voces"""
         final_filename = None
         try:
-            # Validaciones iniciales
             if not text.strip():
                 logger.error("Texto vacío para generación de audio")
                 return None
@@ -253,67 +250,21 @@ class FinancialServices:
                 logger.error("Azure Blob Service no está configurado")
                 return None
     
-            # 1. Configurar cliente OpenAI
             client = get_openai_client()
     
-            # 2. Mapeo completo de tonos a voces y parámetros
             voice_profiles = {
-                # Tonos principales
-                "friendly": {
-                    "voice": "nova",
-                    "speed": 1.1,
-                    "pitch": 1.05,
-                    "model": "tts-1-hd"
-                },
-                "professional": {
-                    "voice": "alloy",
-                    "speed": 1.0,
-                    "pitch": 1.0,
-                    "model": "tts-1-hd"
-                },
-                "robot_cute": {
-                    "voice": "echo",
-                    "speed": 1.3,
-                    "pitch": 1.4,
-                    "model": "tts-1-hd"
-                },
-                "casual": {
-                    "voice": "shimmer",
-                    "speed": 1.2,
-                    "pitch": 1.1,
-                    "model": "tts-1-hd"
-                },
-                # Nuevos tonos personalizados
-                "maple": {
-                    "voice": "fable",  # Voz cálida narrativa
-                    "speed": 0.95,
-                    "pitch": 0.98,
-                    "model": "tts-1-hd"
-                },
-                "juniper": {
-                    "voice": "onyx",  # Voz profunda
-                    "speed": 1.05,
-                    "pitch": 0.95,
-                    "model": "tts-1-hd"
-                },
-                "breezer": {
-                    "voice": "shimmer",  # Voz aireada
-                    "speed": 1.15,
-                    "pitch": 1.2,
-                    "model": "tts-1-hd"
-                },
-                "light": {
-                    "voice": "nova",
-                    "speed": 1.25,
-                    "pitch": 1.3,
-                    "model": "tts-1"
-                }
+                "friendly": {"voice": "nova", "speed": 1.1, "pitch": 1.05, "model": "tts-1-hd"},
+                "professional": {"voice": "alloy", "speed": 1.0, "pitch": 1.0, "model": "tts-1-hd"},
+                "robot_cute": {"voice": "echo", "speed": 1.3, "pitch": 1.4, "model": "tts-1-hd"},
+                "casual": {"voice": "shimmer", "speed": 1.2, "pitch": 1.1, "model": "tts-1-hd"},
+                "maple": {"voice": "fable", "speed": 0.95, "pitch": 0.98, "model": "tts-1-hd"},
+                "juniper": {"voice": "onyx", "speed": 1.05, "pitch": 0.95, "model": "tts-1-hd"},
+                "breezer": {"voice": "shimmer", "speed": 1.15, "pitch": 1.2, "model": "tts-1-hd"},
+                "light": {"voice": "nova", "speed": 1.25, "pitch": 1.3, "model": "tts-1"}
             }
-    
-            # Obtener perfil de voz o usar juniper como default
+
             profile = voice_profiles.get(tone, voice_profiles["juniper"])
             
-            # 3. Generar audio con parámetros personalizados
             response = client.audio.speech.create(
                 model=profile["model"],
                 voice=profile["voice"],
@@ -326,7 +277,6 @@ class FinancialServices:
             final_filename = f"audio_{user_email}_{uuid.uuid4()}.mp3"
             response.stream_to_file(final_filename)
     
-            # 5. Aplicar efectos de post-procesado (opcional)
             if tone in ["robot_cute", "breezer"]:
                 processed_filename = f"processed_{final_filename}"
                 self._apply_audio_effects(
@@ -337,7 +287,6 @@ class FinancialServices:
                 )
                 os.replace(processed_filename, final_filename)
     
-            # 6. Subir a Azure Blob Storage
             blob_client = blob_service_client.get_blob_client(
                 container=container_name,
                 blob=final_filename
@@ -346,7 +295,6 @@ class FinancialServices:
             with open(final_filename, "rb") as audio_data:
                 blob_client.upload_blob(audio_data, overwrite=True)
     
-            # 7. Generar URL firmada
             sas_token = generate_blob_sas(
                 account_name=blob_service_client.account_name,
                 container_name=container_name,
@@ -356,7 +304,6 @@ class FinancialServices:
                 expiry=datetime.utcnow() + timedelta(hours=1)
             )
     
-            # 8. Guardar metadatos
             audio_metadata = {
                 "user_email": user_email,
                 "filename": final_filename,
@@ -368,7 +315,6 @@ class FinancialServices:
             }
             self.audio_metadata.append(audio_metadata)
     
-            # 9. Preparar respuesta
             return {
                 "audio_url": f"{blob_client.url}?{sas_token}",
                 "expires_at": (datetime.utcnow() + timedelta(hours=1)).isoformat() + "Z",
@@ -388,7 +334,6 @@ class FinancialServices:
             logger.error(f"Error en generate_audio: {str(e)}", exc_info=True)
             return None
         finally:
-            # Limpieza garantizada
             if final_filename and os.path.exists(final_filename):
                 try:
                     os.remove(final_filename)
@@ -401,34 +346,28 @@ class FinancialServices:
                            brightness: float = 1.0):
         """Aplicación profesional de efectos de audio"""
         try:
-            # 1. Cargar audio
             audio, sample_rate = sf.read(input_file)
             
-            # 2. Efecto robot (vocoder ligero)
             if robot > 0:
-                shift = int(0.003 * sample_rate)  # 3ms de desplazamiento
+                shift = int(0.003 * sample_rate)
                 shifted = np.roll(audio, shift)
                 audio = (1-robot)*audio + robot*shifted
             
-            # 3. Vibrato (modulación de tono)
             if vibrato > 0:
                 t = np.arange(len(audio)) / sample_rate
                 vibrato_effect = vibrato * 0.01 * sample_rate * np.sin(2 * np.pi * 5.0 * t)
                 audio = np.interp(np.arange(len(audio)) + vibrato_effect, 
                                 np.arange(len(audio)), audio).astype(np.float32)
             
-            # 4. Brightness (énfasis en frecuencias medias-altas)
             if brightness != 1.0:
                 sos = signal.butter(4, [300, 5000], 'bandpass', fs=sample_rate, output='sos')
                 filtered = signal.sosfilt(sos, audio)
                 audio = (1-0.3)*audio + (0.3*brightness)*filtered
             
-            # 5. Guardar resultado
             sf.write(output_file, audio, sample_rate)
             
         except Exception as e:
             logger.error(f"Error aplicando efectos: {str(e)}", exc_info=True)
-            # Fallback: copiar archivo original sin efectos
             import shutil
             shutil.copyfile(input_file, output_file)
 
@@ -475,7 +414,6 @@ class FinancialServices:
         """
 
         try:
-            # Configura el cliente OpenAI (debería estar inicializado en el __init__ de la clase)
             client = get_openai_client()
 
             response = client.chat.completions.create(
@@ -490,15 +428,12 @@ class FinancialServices:
                 frequency_penalty=0.3
             )
 
-            # Acceso CORRECTO al contenido del mensaje en API v1.x
             response_text = response.choices[0].message.content.strip()
 
-            # Validación: evitar números arábigos
             if any(char.isdigit() for char in response_text):
                 logger.warning("Respuesta contenía números arábigos. Generando fallback.")
                 raise ValueError("Respuesta contiene números arábigos")
 
-            # Limpieza segura
             allowed_chars = set("abcdefghijklmnopqrstuvwxyzáéíóúñüABCDEFGHIJKLMNOPQRSTUVWXYZÁÉÍÓÚÑÜ ,.:;¿?¡!\n")
             response_text = ''.join(c for c in response_text if c in allowed_chars or c.isspace())
 
@@ -513,6 +448,60 @@ class FinancialServices:
                 "casual": "Ya está tu resumen financiero. Échale un vistazo cuando puedas."
             }
             return fallbacks.get(tone.lower(), "Análisis financiero disponible.")
+        
+    async def financial_chat(self, message: str, tone: str, chat_history: List[dict] = None, user_email: str = None) -> dict:
+        """Chat financiero con contexto y memoria de conversación"""
+        try:
+            # Construir historial de contexto
+            history_context = ""
+            if chat_history:
+                for msg in chat_history[-5:]:  # Limitar a los últimos 5 mensajes
+                    role = "Usuario" if msg.get("user") else "Asistente"
+                    history_context += f"{role}: {msg.get('message', '')}\n"
+            
+            prompt = f"""
+            Eres FinanceBuddie, un experto asistente financiero. Responde al usuario en tono {tone} considerando:
+            
+            **Contexto previo:**
+            {history_context}
+            
+            **Nueva pregunta:**
+            {message}
+            
+            **Reglas:**
+            1. Respuesta clara y concisa (máximo 3 oraciones)
+            2. Usa términos financieros apropiados pero explicados
+            3. Tono: {tone}
+            4. Si no es pregunta financiera, indica amablemente tu alcance
+            5. Evita números arábigos (usa palabras)
+            """
+            
+            client = get_openai_client()
+            
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "Eres un asistente financiero especializado en análisis de gastos, inversiones y planeación. Sé preciso pero accesible."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=150
+            )
+            
+            response_text = response.choices[0].message.content.strip()
+            
+            return {
+                "message": response_text,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error en financial_chat: {str(e)}")
+            return {
+                "message": "Disculpa, estoy teniendo dificultades técnicas. Por favor intenta de nuevo más tarde.",
+                "timestamp": datetime.now().isoformat()
+            }
+      
        
 financial_services = FinancialServices()
 
@@ -567,7 +556,7 @@ def verify_jwt_token(credentials: HTTPAuthorizationCredentials = Depends(securit
         )
 
 # ----------------------------
-# Endpoints (VERSIÓN COMPLETA)
+# Endpoints
 # ----------------------------
 @app.post("/register", 
           summary="Registro de usuario",
@@ -810,9 +799,6 @@ async def get_user_history(user_email: str = Depends(verify_jwt_token)):
             detail="Error recuperando el historial"
         )
 
-# ----------------------------
-# Endpoints de Sistema
-# ----------------------------
 @app.get("/health", 
          summary="Estado del servicio",
          response_description="Estado de salud del sistema")
@@ -910,6 +896,226 @@ async def diagnostic():
             detail="Error completo en diagnóstico del sistema"
         )
 
+@app.post("/analyze-audio-transactions")
+async def analyze_audio_transactions(
+    audio_file: UploadFile = File(...),
+    tone: str = Form("professional"),
+    generate_audio: bool = Form(True),
+    user_email: str = Depends(verify_jwt_token)
+):
+    """
+    Endpoint que recibe un archivo de audio, lo transcribe y analiza las transacciones financieras.
+    
+    Parámetros:
+    - audio_file: Archivo de audio (formato: wav, mp3, ogg)
+    - tone: Tono para la respuesta (professional, friendly, etc.)
+    - generate_audio: Si se debe generar respuesta de audio
+    
+    Retorna:
+    - Transcripción del audio
+    - Análisis de transacciones
+    - Audio de respuesta (opcional)
+    """
+    try:
+        # 1. Transcribir audio a texto
+        transcription = await financial_services.transcribe_audio(audio_file)
+        
+        if not transcription:
+            raise HTTPException(
+                status_code=400,
+                detail="No se pudo transcribir el audio"
+            )
+        
+        # 2. Analizar texto para extraer transacciones
+        extraction_prompt = f"""
+        Extrae de este texto las transacciones financieras:
+        {transcription}
+
+        Devuelve SOLO un JSON con este formato:
+        {{
+            "transactions": [
+                {{
+                    "description": string,
+                    "amount": float,
+                    "currency": string (ej. "MXN", "USD"),
+                    "transaction_type": "ingreso" o "egreso"
+                }}
+            ]
+        }}
+        """
+        
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": extraction_prompt}],
+            response_format={"type": "json_object"}
+        )
+        
+        data = json.loads(response.choices[0].message.content)
+        transactions = data["transactions"]
+        
+        # 3. Procesar transacciones
+        analysis_request = AnalysisRequest(
+            transactions=[Transaction(**tx) for tx in transactions],
+            tone=tone,
+            generate_audio=generate_audio,
+            skip_categorization=False
+        )
+        
+        analysis_result = await analyze_finances(analysis_request, user_email)
+        
+        # 4. Preparar respuesta extendida
+        return {
+            "status": "success",
+            "transcription": transcription,
+            "analysis": analysis_result,
+            "metadata": {
+                "audio_file_info": {
+                    "content_type": audio_file.content_type,
+                    "size": audio_file.size
+                },
+                "processing_time": datetime.now().isoformat()
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en analyze_audio_transactions: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Error procesando el audio y transacciones"
+        )
+
+@app.post("/financial-chat")
+async def financial_chat_endpoint(
+    request: ChatRequest,
+    user_email: str = Depends(verify_jwt_token)
+):
+    """
+    Endpoint de chat financiero que soporta voz y texto.
+    
+    Parámetros:
+    - message: Mensaje del usuario (texto o transcripción de audio)
+    - tone: Tono de la respuesta
+    - chat_history: Historial previo de la conversación
+    - generate_audio_response: Si se debe generar respuesta de audio
+    
+    Retorna:
+    - Respuesta del asistente
+    - Audio de respuesta (opcional)
+    - Historial actualizado
+    """
+    try:
+        # 1. Procesar mensaje con el asistente financiero
+        chat_response = await financial_services.financial_chat(
+            message=request.message,
+            tone=request.tone,
+            chat_history=request.chat_history,
+            user_email=user_email
+        )
+        
+        # 2. Generar audio si está solicitado
+        audio_info = None
+        if request.generate_audio_response:
+            audio_info = financial_services.generate_audio(
+                chat_response["message"],
+                request.tone,
+                user_email
+            )
+        
+        # 3. Preparar historial actualizado
+        updated_history = []
+        if request.chat_history:
+            updated_history = request.chat_history.copy()
+        
+        updated_history.extend([
+            {"user": True, "message": request.message, "timestamp": datetime.now().isoformat()},
+            {"user": False, "message": chat_response["message"], "timestamp": chat_response["timestamp"]}
+        ])
+        
+        # 4. Preparar respuesta
+        return {
+            "status": "success",
+            "response": chat_response["message"],
+            "audio_response": audio_info,
+            "chat_history": updated_history[-10:],  # Limitar a últimos 10 mensajes
+            "metadata": {
+                "tone_used": request.tone,
+                "response_length": len(chat_response["message"]),
+                "user": user_email
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error en financial_chat_endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Error en el chat financiero"
+        )
+
+@app.post("/voice-chat")
+async def voice_chat_endpoint(
+    audio_file: UploadFile = File(...),
+    tone: str = Form("professional"),
+    generate_audio_response: bool = Form(True),
+    chat_history: str = Form(None),  # JSON string
+    user_email: str = Depends(verify_jwt_token)
+):
+    """
+    Endpoint de chat por voz que procesa audio y puede responder con audio.
+    
+    Parámetros:
+    - audio_file: Mensaje de voz del usuario
+    - tone: Tono de la respuesta
+    - generate_audio_response: Si se debe responder con audio
+    - chat_history: Historial de conversación en JSON string
+    
+    Retorna:
+    - Transcripción del audio
+    - Respuesta del asistente
+    - Audio de respuesta (opcional)
+    - Historial actualizado
+    """
+    try:
+        # 1. Parsear historial de chat si existe
+        history = []
+        if chat_history:
+            try:
+                history = json.loads(chat_history)
+                if not isinstance(history, list):
+                    history = []
+            except json.JSONDecodeError:
+                history = []
+        
+        # 2. Transcribir audio a texto
+        transcription = await financial_services.transcribe_audio(audio_file)
+        
+        if not transcription:
+            raise HTTPException(
+                status_code=400,
+                detail="No se pudo transcribir el mensaje de voz"
+            )
+        
+        # 3. Procesar con el chat financiero
+        chat_request = ChatRequest(
+            message=transcription,
+            tone=tone,
+            chat_history=history,
+            generate_audio_response=generate_audio_response
+        )
+        
+        return await financial_chat_endpoint(chat_request, user_email)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en voice_chat_endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Error en el chat de voz"
+        )
+
+
 # ----------------------------
 # Inicialización del servidor
 # ----------------------------
@@ -918,7 +1124,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
-        port=int(os.getenv("PORT", 8000)),  # usa el puerto asignado por Railway
+        port=int(os.getenv("PORT", 8000)),  #Puerto de Railway
         reload=True,
         log_level="info",
         workers=1

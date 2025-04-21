@@ -12,16 +12,18 @@ azure-storage-blob==12.19.0
 azure-identity==1.15.0
 
 # Procesamiento de audio
-numpy==1.24.3           # Esta versión es requerida por TTS
-scipy==1.11.4           # Compatible con numpy 1.24.3
+numpy==1.24.3
+scipy==1.11.4
 soundfile==0.12.1
-librosa==0.10.1         # Librería útil para preprocesamiento de audio
+librosa==0.10.1
+pydub==0.25.1
+SpeechRecognition==3.10.0  # Opcional pero recomendado
 
 # Deep Learning
-torch==2.1.2            # Compatible con TTS, evita usar versiones muy nuevas
+torch==2.1.2
 
 # Text-to-Speech
-TTS==0.20.1             # Compatible con numpy 1.24.3
+TTS==0.20.1
 
 # Autenticación
 python-jose==3.3.0
